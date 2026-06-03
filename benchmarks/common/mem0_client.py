@@ -205,7 +205,7 @@ class Mem0Client:
         for attempt in range(self.max_retries):
             try:
                 async with self.limiter:
-                    async with session.post(f"{self.host}/v3/memories/", json=payload) as resp:
+                    async with session.post(f"{self.host}/v3/memories/add/", json=payload) as resp:
                         resp.raise_for_status()
                         resp_data = await resp.json()
 

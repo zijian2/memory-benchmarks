@@ -24,14 +24,24 @@ No Docker required. You need a [Mem0 API key](https://app.mem0.ai) and an OpenAI
 
 ```bash
 # Set your keys
-export MEM0_API_KEY=m0-your-key
-export OPENAI_API_KEY=sk-your-key
+# export MEM0_API_KEY=m0-your-key
+# export OPENAI_API_KEY=sk-your-key
+
+# export ANTHROPIC_API_KEY=your-anthropic-key  # Optional, only needed if using the anthropic provider
+# export ANTHROPIC_API_BASE_URL=https://your-anthropic-endpoint.com  # Optional, only needed if using a custom anthropic endpoint
+
+export MEM0_API_KEY=
+export ANTHROPIC_API_KEY=
+export ANTHROPIC_API_BASE_URL=
 
 # Run a benchmark
-python -m benchmarks.locomo.run \
-  --project-name my-first-test \
+uv run python -m benchmarks.locomo.run \
+  --project-name locomo-test-1 \
   --backend cloud \
-  --mem0-api-key $MEM0_API_KEY
+  --mem0-api-key $MEM0_API_KEY \
+  --provider anthropic \
+  --answerer-model claude-opus-4-7 \
+  --judge-model claude-opus-4-7
 
 # LongMemEval (500 questions)
 python -m benchmarks.longmemeval.run \
@@ -75,6 +85,54 @@ python -m benchmarks.beam.run --project-name my-first-test --chat-sizes 100K --c
 ```
 
 By default, the OSS server uses OpenAI for fact extraction (`gpt-4o-mini`) and embeddings (`text-embedding-3-small`). See [Custom Models](#custom-models) for using Azure, Ollama, or other providers.
+
+### Option C: OpenClaw Memory
+
+Use OpenClaw's built-in memory engine (file + vector index, BM25 + cosine hybrid). No Docker, no mem0 — each LoCoMo conversation gets its own OpenClaw agent workspace under `~/.openclaw/workspace/locomo_*`.
+
+**Prerequisites:**
+
+- OpenClaw installed and running (`openclaw gateway status` should report healthy)
+- An embedding provider configured for memory search (we use GitHub Copilot below; `local` GGUF and `openai` also work — see `openclaw memory status --deep`)
+
+```bash
+# Configure OpenClaw memory search provider once (writes to ~/.openclaw/openclaw.json)
+openclaw config patch --stdin <<'JSON'
+{ "agents": { "defaults": { "memorySearch": { "provider": "github-copilot" } } } }
+JSON
+openclaw gateway restart
+
+# LLM keys for the answerer/judge (we route Claude through the iFlytek OpenAI-compatible gateway)
+export OPENAI_API_KEY=
+export OPENAI_BASE_URL=
+
+# Smoke test (1 conversation, 3 single-hop questions)
+uv run python -m benchmarks.locomo.run \
+  --project-name smoke-openclaw-copilot \
+  --memory-backend openclaw \
+  --provider anthropic \
+  --answerer-model claude-opus-4-7 \
+  --judge-model claude-opus-4-7 \
+  --conversations 0 --categories 4 --max-questions 3 \
+  --top-k 200 --top-k-cutoffs 8
+
+# Full LoCoMo (10 conversations, all categories, all questions)
+uv run python -m benchmarks.locomo.run \
+  --project-name full-openclaw-copilot \
+  --memory-backend openclaw \
+  --provider anthropic \
+  --answerer-model claude-opus-4-7 \
+  --judge-model claude-opus-4-7 \
+  --conversations 0,1,2,3,4,5,6,7,8,9 \
+  --categories 1,2,3,4 \
+  --top-k 200 --top-k-cutoffs 10,20,50,200
+```
+
+**Notes:**
+
+- The first `search()` per conversation triggers a one-shot index rebuild (`openclaw memory index --force`). With Copilot embeddings this takes ~1-3 min for a 419-chunk conversation; subsequent searches reuse the cached embeddings.
+- Switching `memorySearch.provider` (e.g. `local` ↔ `github-copilot`) changes the vector space and forces a full reindex.
+- Each `user_id` writes to `~/.openclaw/workspace/locomo_<conv>_<run_hash>/memory/conversation.md` and `~/.openclaw/memory/locomo_*.sqlite`. Clean up old runs with `rm -rf ~/.openclaw/workspace/locomo_* ~/.openclaw/memory/locomo_*.sqlite`.
 
 ### View results in the UI
 

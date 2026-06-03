@@ -126,6 +126,7 @@ class LLMClient:
     def _init_anthropic(self, api_key: str | None) -> None:
         import anthropic
         self._client = anthropic.AsyncAnthropic(
+            base_url=os.getenv("ANTHROPIC_API_BASE_URL", "https://api.anthropic.com"),
             api_key=api_key or os.getenv("ANTHROPIC_API_KEY"),
         )
 

@@ -44,6 +44,7 @@ from tqdm import tqdm
 
 from benchmarks.common.llm_client import LLMClient
 from benchmarks.common.mem0_client import Mem0Client, format_search_results
+from benchmarks.common.openclaw_client import OpenClawClient
 from benchmarks.common.metrics import compute_overall_metrics
 from benchmarks.common.schema import (
     CutoffResult,
@@ -709,8 +710,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--user-profile", action="store_true", help="Fetch user profiles")
     parser.add_argument("--max-questions", type=int, default=None, help="Max questions to process (for quick testing)")
     parser.add_argument("--rpm", type=int, default=200, help="Requests per minute for LLM")
-    parser.add_argument("--backend", default="oss", choices=["oss", "cloud"],
-                        help="Mem0 backend: 'oss' for self-hosted server (default), 'cloud' for api.mem0.ai")
+    parser.add_argument("--backend", default="cloud", choices=["oss", "cloud"],
+                        help="Mem0 backend mode (only used when --memory-backend=mem0): 'oss' for self-hosted server (default), 'cloud' for api.mem0.ai")
+    parser.add_argument("--memory-backend", default="mem0",
+                        choices=["mem0", "openclaw"],
+                        help="Which memory system to benchmark: mem0 (default), openclaw (file+vector index)")
     parser.add_argument("--mem0-host", default=None,
                         help="Mem0 server URL (default: http://localhost:8888 for oss, https://api.mem0.ai for cloud)")
     parser.add_argument("--mem0-api-key", default=None,
@@ -827,14 +831,20 @@ async def async_main() -> None:
         print(f"\nTotal questions evaluated: {len(all_evaluations)}")
         return
 
-    # Init Mem0 (not used for --evaluate-only)
-    backend = os.getenv("MEM0_BACKEND", args.backend)
-    mem0 = Mem0Client(
-        mode=backend,
-        host=args.mem0_host,
-        api_key=args.mem0_api_key if backend == "cloud" else None,
-        rpm=args.rpm,
-    )
+    # Init memory backend (not used for --evaluate-only)
+    memory_backend = args.memory_backend
+    if memory_backend == "openclaw":
+        mem0 = OpenClawClient(rpm=args.rpm)
+        print(f"  Memory backend: openclaw (local file + vector index)")
+    else:
+        backend = os.getenv("MEM0_BACKEND", args.backend)
+        mem0 = Mem0Client(
+            mode=backend,
+            host=args.mem0_host,
+            api_key=args.mem0_api_key if backend == "cloud" else None,
+            rpm=args.rpm,
+        )
+        print(f"Memory backend: mem0 ({backend})")
     shutdown = GracefulShutdown()
     checkpoint = Checkpoint(output_dir)
 
